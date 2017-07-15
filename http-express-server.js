@@ -1,5 +1,10 @@
 const PORT = 8080;
 const MAX_GROUP_NUMBER = 1000;
+const MIN_USERNAME_LENGTH = 4;
+const MIN_PASSWORD_LENGTH = 4;
+const MAX_LENGTH = 20;
+const VALID_ROLES = [ 'superadmin', 'admin', 'user' ];
+const SUPER_ADMIN_ROLE = 'superadmin';
 const dbConnetionData = {
         host     : 'localhost',
         database : 'user_mngt_db',
@@ -14,9 +19,11 @@ const mysql = require( 'mysql' );
 
 const expressApp = express();
 //--------------------------------------------------------------------------------
+let userIdSchema, groupIdSchema;
 let baseAllGourpSQLQuery;
+let baseAllUserSQLQuery;
 //--------------------------------------------------------------------------------
-expressApp.listen( PORT, () => {
+const httpServer = expressApp.listen( PORT, () => {
     console.log( "Server has started on port: " + PORT );
 });
 
@@ -43,9 +50,8 @@ expressApp.route( '/user-groups/:groupId' )
 expressApp.use( onReqError );
 //--------------------------------------------------------------------------------
 function getAllUsers( req, res, next ) {
-    let sqlQuery = 'SELECT id, name, password, email, role FROM users';
 
-    dbRequest( sqlQuery )
+    dbRequest( baseAllUserSQLQuery )
         .then( data => {
             res.status( 200 );
             res.end( JSON.stringify( data, null, '  ' ) );
@@ -56,11 +62,8 @@ function getAllUsers( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function getUser( req, res, next ) {
-    let sqlQuery = 'SELECT id, name, password, email, role FROM users';
-    let idSchema = Joi.object().keys({
-        userId: Joi.number().integer().min( 0 ).max( MAX_GROUP_NUMBER )
-    });
-    let isVaildId = Joi.validate( req.params, idSchema );
+    let sqlQuery = baseAllUserSQLQuery;
+    let isVaildId = Joi.validate( req.params, userIdSchema );
 
     if (  isVaildId.error  ) {
         next( isVaildId.error );
@@ -82,7 +85,68 @@ function getUser( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function addUser( req, res, next ) {
-    res.status( 200 ).json( { test: 'add user' } );
+    let sqlQuery, userId;
+    let isVaildId = Joi.validate( req.params, userIdSchema );    
+    let userDataSchema = Joi.object().keys( {
+        name: Joi.string().regex( /[\w]+/ ).min( MIN_USERNAME_LENGTH ).max( MAX_LENGTH ).required(),
+        password: Joi.string().alphanum().min( MIN_PASSWORD_LENGTH ).max( MAX_LENGTH ).required(),
+        email: Joi.string().email().required(),
+        role: Joi.string().valid( ...VALID_ROLES ).required(),    
+    });
+    let isVaildUserData = Joi.validate( req.body, userDataSchema );
+
+    if ( isVaildId.error || isVaildUserData.error ) {
+        next( isVaildId.error || isVaildUserData.error );
+        return;
+    }
+
+    userId = req.params.userId;
+
+    sqlQuery = '\
+        SELECT \'user id ' + userId + ' not unique\' AS errorMessage\
+        FROM users\
+        WHERE id = ' + userId + '\
+        UNION\
+        SELECT \'user name ' + req.body.name + ' not unique\'\
+        FROM users\
+        WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\'\
+        UNION\
+        SELECT \'user email not unique\'\
+        FROM users\
+        WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\'';
+    if ( req.body.role === SUPER_ADMIN_ROLE ) {
+        sqlQuery += '\
+            UNION\
+            SELECT \'no more then 2 superadmin is possible\'\
+            FROM users\
+            WHERE role = \'' + SUPER_ADMIN_ROLE + '\'\
+            HAVING COUNT( id ) = 2';
+    }
+
+    dbRequest( sqlQuery )
+        .then( data => {
+
+            if(  data.length ) {
+                res.status( 200 ).json( data );
+                return;
+            }
+            sqlQuery = 'INSERT INTO USERS (id,name,password,email,role)\
+                                    VALUES( ' + userId + ',\
+                                            \'' + req.body.name + '\',\
+                                            \'' + req.body.password + '\',\
+                                            \'' + req.body.email + '\',\
+                                            \'' + req.body.role + '\' )';
+            dbRequest( sqlQuery )
+                .then( data => {
+                    res.status( 200 ).json( { status: 'user id: ' + userId + ' has been created' } );
+                })
+                .catch( err => {
+                    next( err );
+                });
+        })
+        .catch( err => {
+            next( err );
+        });
 }
 //--------------------------------------------------------------------------------
 function patchUser( req, res, next ) {
@@ -108,10 +172,7 @@ function getAllUserGroups( req, res, next ) {
 //--------------------------------------------------------------------------------
 function getUserGroup( req, res, next ) {
     let sqlQuery = baseAllGourpSQLQuery;
-    let idSchema = Joi.object().keys({
-        groupId: Joi.number().integer().min( 0 ).max( MAX_GROUP_NUMBER )
-    });
-    let isVaildId = Joi.validate( req.params, idSchema );
+    let isVaildId = Joi.validate( req.params, groupIdSchema );
 
     if (  isVaildId.error  ) {
         next( isVaildId.error );
@@ -161,10 +222,12 @@ function dbRequest( querySQL ) {
                 reject( error );
             }
             resolve( results );
+
+            connection.end( err => {
+                console.log( 'DB connection ended with error: ' + err );
+            });        
+            
         });
-        connection.end( err => {
-            console.log( 'DB connection ended with error: ' + err );
-        });        
     });
 }
 //--------------------------------------------------------------------------------
@@ -205,3 +268,12 @@ baseAllGourpSQLQuery = '\
     ON user_groups.id = group_users.groupId\
     LEFT JOIN users\
     ON group_users.userId = users.id';
+
+baseAllUserSQLQuery = 'SELECT id, name, password, email, role FROM users';
+
+userIdSchema = Joi.object().keys({
+        userId: Joi.number().integer().min( 0 ).max( MAX_GROUP_NUMBER )
+});
+groupIdSchema = Joi.object().keys({
+        groupId: Joi.number().integer().min( 0 ).max( MAX_GROUP_NUMBER )
+});
