@@ -20,7 +20,7 @@ const mysql = require( 'mysql' );
 const expressApp = express();
 //--------------------------------------------------------------------------------
 let userIdSchema, groupIdSchema;
-let baseAllGourpSQLQuery;
+let baseAllGroupSQLQuery;
 let baseAllUserSQLQuery;
 //--------------------------------------------------------------------------------
 const httpServer = expressApp.listen( PORT, () => {
@@ -76,7 +76,7 @@ function getUser( req, res, next ) {
             if(  data.length ) {
                 res.status( 200 ).json( data[ 0 ] );
             } else {
-                res.status( 200 ).json( { status: 'User not found' } );
+                res.status( 204 ).json( { status: 'User not found' } );
             }
         })
         .catch( err => {
@@ -111,7 +111,7 @@ function addUser( req, res, next ) {
         FROM users\
         WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\'\
         UNION\
-        SELECT \'user email not unique\'\
+        SELECT \'user email ' + req.body.email + ' not unique\'\
         FROM users\
         WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\'';
     if ( req.body.role === SUPER_ADMIN_ROLE ) {
@@ -127,7 +127,7 @@ function addUser( req, res, next ) {
         .then( data => {
 
             if(  data.length ) {
-                res.status( 200 ).json( data );
+                res.status( 400 ).json( data );
                 return;
             }
             sqlQuery = 'INSERT INTO USERS (id,name,password,email,role)\
@@ -138,7 +138,7 @@ function addUser( req, res, next ) {
                                             \'' + req.body.role + '\' )';
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 200 ).json( { status: 'user id: ' + userId + ' has been created' } );
+                    res.status( 201 ).json( { status: 'user id: ' + userId + ' has been created' } );
                 })
                 .catch( err => {
                     next( err );
@@ -150,15 +150,82 @@ function addUser( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function patchUser( req, res, next ) {
-    res.status( 200 ).json( { test: 'patch user' } );
+    let sqlQuery, userId;
+    let isVaildId = Joi.validate( req.params, userIdSchema );    
+    let userDataSchema = Joi.object().keys( {
+        name: Joi.string().regex( /[\w]+/ ).min( MIN_USERNAME_LENGTH ).max( MAX_LENGTH ),
+        password: Joi.string().alphanum().min( MIN_PASSWORD_LENGTH ).max( MAX_LENGTH ),
+        email: Joi.string().email(),
+        role: Joi.string().valid( ...VALID_ROLES ),
+    }).min( 1 );
+    let isVaildUserData = Joi.validate( req.body, userDataSchema );
+
+    if ( isVaildId.error || isVaildUserData.error ) {
+        next( isVaildId.error || isVaildUserData.error );
+        return;
+    }
+
+    userId = req.params.userId;
+
+    sqlQuery = '\
+        SELECT \'user id ' + userId + ' not found\' AS errorMessage\
+        FROM users\
+        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0 ';
+
+    if ( req.body.hasOwnProperty( 'name' ) ) {
+        sqlQuery += '\
+            UNION\
+            SELECT \'user name ' + req.body.name + ' not unique\'\
+            FROM users\
+            WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\' ';
+    }    
+    if ( req.body.hasOwnProperty( 'email' ) ) {
+        sqlQuery +=  '\
+            UNION\
+            SELECT \'user email ' + req.body.email + ' not unique\'\
+            FROM users\
+            WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\' ';
+    }    
+    if ( req.body.hasOwnProperty( 'role' ) ) {
+        sqlQuery += '\
+            UNION\
+            SELECT \'no more then 2 superadmin is possible\'\
+            FROM users\
+            WHERE role = \'' + SUPER_ADMIN_ROLE + '\'\
+            HAVING COUNT( id ) = 2 ';
+    }
+
+    dbRequest( sqlQuery )
+        .then( data => {
+            let setStr = '';
+            if(  data.length ) {
+                res.status( 400 ).json( data );
+                return;
+            }
+            sqlQuery = 'UPDATE users SET ';
+            for ( let prop in req.body ) {
+                setStr += ( setStr === '' ? ' ' : ', ' ) + prop + ' = \'' + req.body[ prop ] + '\'';
+            }
+            sqlQuery += ' WHERE id = ' + userId;                                
+            dbRequest( sqlQuery )
+                .then( data => {
+                    res.status( 201 ).json( { status: 'user id: ' + userId + ' has been created' } );
+                })
+                .catch( err => {
+                    next( err );
+                });
+        })
+        .catch( err => {
+            next( err );
+        });
 }
 //--------------------------------------------------------------------------------
 function deleteUser( req, res, next ) {
-    res.status( 200 ).json( { test: 'delete user' } );
+    
 }
 //--------------------------------------------------------------------------------
 function getAllUserGroups( req, res, next ) {
-    let sqlQuery = baseAllGourpSQLQuery;
+    let sqlQuery = baseAllGroupSQLQuery;
 
     dbRequest( sqlQuery )
         .then( data => {
@@ -171,7 +238,7 @@ function getAllUserGroups( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function getUserGroup( req, res, next ) {
-    let sqlQuery = baseAllGourpSQLQuery;
+    let sqlQuery = baseAllGroupSQLQuery;
     let isVaildId = Joi.validate( req.params, groupIdSchema );
 
     if (  isVaildId.error  ) {
@@ -186,7 +253,7 @@ function getUserGroup( req, res, next ) {
             if(  data.length ) {
                 res.status( 200 ).json( data[ 0 ] );
             } else {
-                res.status( 200 ).json( { status: 'Group not found' } );
+                res.status( 204 ).json( { status: 'Group not found' } );
             }            
         })
         .catch( err => {
@@ -195,15 +262,15 @@ function getUserGroup( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function addUserGroup( req, res, next ) {
-    res.status( 200 ).json( { test: 'add userGroup' } );
+    
 }
 //--------------------------------------------------------------------------------
 function patchUserGroup( req, res, next ) {
-    res.status( 200 ).json( { test: 'patch userGroup' } );
+    
 }
 //--------------------------------------------------------------------------------
 function deleteUserGroup( req, res, next ) {
-    res.status( 200 ).json( { test: 'delete userGroup' } );
+    
 }
 //--------------------------------------------------------------------------------
 function onReqError( err, req, res, next ) {
@@ -233,6 +300,7 @@ function dbRequest( querySQL ) {
 //--------------------------------------------------------------------------------
 function structDBListToUserGroup( array ) {
     let res = [];
+    let newUser;
 
     array.forEach( ( elem, index, arr ) => {
         if ( index === 0 || arr[ index ].groupId !== arr[ index - 1 ].groupId ) {
@@ -241,7 +309,11 @@ function structDBListToUserGroup( array ) {
                 groupName: elem.groupName,
                 users: arr.filter( elem => elem.groupId === arr[ index ].groupId )
                           .map( elem =>  { 
-                              return Object.assign( new User(), elem );
+                              newUser = new User();
+                              Object.assign( newUser, elem );
+                              delete newUser.groupId;
+                              delete newUser.groupName;
+                              return newUser;
                           } )
             });
         }
@@ -260,7 +332,7 @@ class User {
     }
 }
 //--------------------------------------------------------------------------------
-baseAllGourpSQLQuery = '\
+baseAllGroupSQLQuery = '\
     SELECT user_groups.id AS groupId, user_groups.name AS groupName,\
         users.id,  users.name, users.password, users.email, users.role\
     FROM user_groups\
