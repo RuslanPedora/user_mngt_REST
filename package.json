@@ -1,0 +1,17 @@
+{
+  "name": "user-management-rest-api",
+  "version": "1.0.0",
+  "description": "User managament REST API",
+  "main": "http-express-server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ruslan Pedora",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.17.2",
+    "express": "^4.15.3",
+    "joi": "^10.6.0",
+    "mysql": "^2.13.0"
+  }
+}
