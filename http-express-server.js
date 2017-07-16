@@ -112,14 +112,14 @@ function addUser( req, res, next ) {
         SELECT \'User id ' + userId + ' not unique\' AS errorMessage\
         FROM users\
         WHERE id = ' + userId + '\
+        \
         UNION\
-        SELECT \'User name ' + req.body.name + ' not unique\'\
-        FROM users\
-        WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\'\
+        \
+        ' + getUserNameCheckQuery( userId, req.body.name ) + '\
+        \
         UNION\
-        SELECT \'User email ' + req.body.email + ' not unique\'\
-        FROM users\
-        WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\'';
+        \
+        ' + getUserEmailCheckQuery( userId, req.body.email );
     if ( req.body.role === SUPER_ADMIN_ROLE ) {
         sqlQuery += '\
             UNION\
@@ -173,24 +173,13 @@ function patchUser( req, res, next ) {
 
     userId = req.params.userId;
 
-    sqlQuery = '\
-        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
-        FROM users\
-        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0 ';
+    sqlQuery = getUserExistQuery( userId );
 
     if ( req.body.hasOwnProperty( 'name' ) ) {
-        sqlQuery += '\
-            UNION\
-            SELECT \'User name ' + req.body.name + ' not unique\'\
-            FROM users\
-            WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\' ';
+        sqlQuery += ' UNION ' + getUserNameCheckQuery( userId, req.body.name );
     }    
     if ( req.body.hasOwnProperty( 'email' ) ) {
-        sqlQuery +=  '\
-            UNION\
-            SELECT \'User email ' + req.body.email + ' not unique\'\
-            FROM users\
-            WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\' ';
+        sqlQuery +=  ' UNION ' + getUserEmailCheckQuery( userId, req.body.email );
     }    
     if ( req.body.hasOwnProperty( 'role' ) ) {
         sqlQuery +=  '\
@@ -251,9 +240,7 @@ function deleteUser( req, res, next ) {
     userId = req.params.userId;
 
     sqlQuery = '\
-        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
-        FROM users\
-        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
+        ' + getUserExistQuery( userId ) + '\
         \
         UNION\
         \
@@ -334,7 +321,7 @@ function getUserGroup( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function addUserGroup( req, res, next ) {
-    let sqlQuery, groupId, condition;
+    let sqlQuery, groupId;
     let isVaildId = Joi.validate( req.params, groupIdSchema );    
     let groupSchema = Joi.object().keys({
         name: Joi.string().min( MIN_GROUPNAME_LENGTH ).max( MAX_LENGTH ).required(),
@@ -356,16 +343,7 @@ function addUserGroup( req, res, next ) {
                 FROM user_groups\
                 WHERE id = ' + groupId;
 
-    condition = '';
-    for ( let userId of req.body.userIds ) {
-        condition += ( condition === '' ? ' ' : ' OR ' ) + ' id = ' + userId;
-    }
-    sqlQuery += '\
-        UNION\
-        SELECT \'Please pass an array with existed ids\'\
-        FROM users\
-        WHERE ' + condition + '\
-        HAVING COUNT(id) <> ' + req.body.userIds.length;
+    sqlQuery += ' UNION ' + getUserListExistQuery( req.body.userIds );
 
     dbRequest( sqlQuery )
         .then( data => {
@@ -394,7 +372,7 @@ function addUserGroup( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function patchUserGroup( req, res, next ) {
-    let sqlQuery, groupId, condition;
+    let sqlQuery, groupId;
     let isVaildId = Joi.validate( req.params, groupIdSchema );    
     let groupSchema = Joi.object().keys({
         name: Joi.string().min( MIN_GROUPNAME_LENGTH ).max( MAX_LENGTH ),
@@ -411,21 +389,9 @@ function patchUserGroup( req, res, next ) {
     }
     groupId = req.params.groupId;
 
-    sqlQuery = '\
-        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
-        FROM user_groups\
-        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0';
+    sqlQuery = getGroupExistQuery( groupId );
     if ( req.body.hasOwnProperty( 'userIds' ) ) {
-        condition = '';
-        for ( let userId of req.body.userIds ) {
-            condition += ( condition === '' ? ' ' : ' OR ' ) + ' id = ' + userId;
-        }
-        sqlQuery += '\
-            UNION\
-            SELECT \'Please pass an array with existed ids\'\
-            FROM users\
-            WHERE ' + condition + '\
-            HAVING COUNT(id) <> ' + req.body.userIds.length;
+        sqlQuery += ' UNION ' + getUserListExistQuery( req.body.userIds );
     }
 
     dbRequest( sqlQuery )
@@ -470,10 +436,7 @@ function deleteUserGroup( req, res, next ) {
     }
     groupId = req.params.groupId;
 
-    sqlQuery = '\
-        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
-        FROM user_groups\
-        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0';
+    sqlQuery = getGroupExistQuery( groupId );
 
     dbRequest( sqlQuery )
         .then( data => {
@@ -507,15 +470,11 @@ function addUserToGroup( req, res, next ) {
     groupId = req.params.groupId;
     userId = req.params.userId;
     sqlQuery = '\
-        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
-        FROM users\
-        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
+        ' + getUserExistQuery( userId ) + '\
         \
         UNION\
         \
-        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
-        FROM user_groups\
-        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0\
+        ' + getGroupExistQuery( groupId ) + '\
         \
         UNION\
         \
@@ -556,15 +515,11 @@ function deleteUserToGroup( req, res, next ) {
     groupId = req.params.groupId;
     userId = req.params.userId;
     sqlQuery = '\
-        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
-        FROM users\
-        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
+        ' + getUserExistQuery( userId ) + '\
         \
         UNION\
         \
-        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
-        FROM user_groups\
-        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0\
+        ' + getGroupExistQuery( groupId ) + '\
         \
         UNION\
         \
@@ -658,6 +613,58 @@ class User {
         this.email = email;
         this.role = role;
     }
+}
+//--------------------------------------------------------------------------------
+function getUserExistQuery( userId ) {
+    let query = '\
+        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
+        FROM users\
+        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0';
+
+    return query;
+}
+//--------------------------------------------------------------------------------
+function getGroupExistQuery( groupId ) {
+    let query = '\
+        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
+        FROM user_groups\
+        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0';
+
+    return query;
+}
+//--------------------------------------------------------------------------------
+function getUserNameCheckQuery( userId, userName ) {
+    let query = '\
+        SELECT \'User name ' + userName + ' not unique\'\
+        FROM users\
+        WHERE id <> ' + userId + ' AND users.name = \'' + userName + '\'';
+
+    return query;
+}
+//--------------------------------------------------------------------------------
+function getUserEmailCheckQuery( userId, userEmail ) {
+    let query = '\
+        SELECT \'User email ' + userEmail + ' not unique\'\
+        FROM users\
+        WHERE id <> ' + userId + ' AND users.email = \'' + userEmail + '\'';
+
+    return query;
+}
+//--------------------------------------------------------------------------------
+function getUserListExistQuery( userIds ) {
+    let query;
+    let condition = '';
+
+    for ( let userId of userIds ) {
+        condition += ( condition === '' ? ' ' : ' OR ' ) + ' id = ' + userId;
+    }
+    query = '\
+        SELECT \'Please pass an array with existed ids\'\
+        FROM users\
+        WHERE ' + condition + '\
+        HAVING COUNT(id) <> ' + userIds.length;
+
+    return query;
 }
 //--------------------------------------------------------------------------------
 baseAllGroupSQLQuery = '\
