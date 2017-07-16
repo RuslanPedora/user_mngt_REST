@@ -20,7 +20,7 @@ const mysql = require( 'mysql' );
 
 const expressApp = express();
 //--------------------------------------------------------------------------------
-let userIdSchema, groupIdSchema;
+let userIdSchema, groupIdSchema, bothIdSchema;
 let baseAllGroupSQLQuery;
 let baseAllUserSQLQuery;
 //--------------------------------------------------------------------------------
@@ -47,6 +47,11 @@ expressApp.route( '/user-groups/:groupId' )
     .post( addUserGroup )
     .patch( patchUserGroup )
     .delete( deleteUserGroup );
+
+expressApp.route( '/user-groups/:groupId/users/:userId' )
+    .post( addUserToGroup )
+    .delete( deleteUserToGroup );
+
 
 expressApp.use( onReqError );
 //--------------------------------------------------------------------------------
@@ -104,21 +109,21 @@ function addUser( req, res, next ) {
     userId = req.params.userId;
 
     sqlQuery = '\
-        SELECT \'user id ' + userId + ' not unique\' AS errorMessage\
+        SELECT \'User id ' + userId + ' not unique\' AS errorMessage\
         FROM users\
         WHERE id = ' + userId + '\
         UNION\
-        SELECT \'user name ' + req.body.name + ' not unique\'\
+        SELECT \'User name ' + req.body.name + ' not unique\'\
         FROM users\
         WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\'\
         UNION\
-        SELECT \'user email ' + req.body.email + ' not unique\'\
+        SELECT \'User email ' + req.body.email + ' not unique\'\
         FROM users\
         WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\'';
     if ( req.body.role === SUPER_ADMIN_ROLE ) {
         sqlQuery += '\
             UNION\
-            SELECT \'no more then 2 superadmin is possible\'\
+            SELECT \'No more then 2 superadmin is possible\'\
             FROM users\
             WHERE role = \'' + SUPER_ADMIN_ROLE + '\'\
             HAVING COUNT( id ) = 2';
@@ -139,7 +144,7 @@ function addUser( req, res, next ) {
                                             \'' + req.body.role + '\' )';
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'user id: ' + userId + ' has been created' } );
+                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been created' } );
                 })
                 .catch( err => {
                     next( err );
@@ -169,21 +174,21 @@ function patchUser( req, res, next ) {
     userId = req.params.userId;
 
     sqlQuery = '\
-        SELECT \'user id ' + userId + ' not found\' AS errorMessage\
+        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
         FROM users\
         HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0 ';
 
     if ( req.body.hasOwnProperty( 'name' ) ) {
         sqlQuery += '\
             UNION\
-            SELECT \'user name ' + req.body.name + ' not unique\'\
+            SELECT \'User name ' + req.body.name + ' not unique\'\
             FROM users\
             WHERE id <> ' + userId + ' AND users.name = \'' + req.body.name + '\' ';
     }    
     if ( req.body.hasOwnProperty( 'email' ) ) {
         sqlQuery +=  '\
             UNION\
-            SELECT \'user email ' + req.body.email + ' not unique\'\
+            SELECT \'User email ' + req.body.email + ' not unique\'\
             FROM users\
             WHERE id <> ' + userId + ' AND users.email = \'' + req.body.email + '\' ';
     }    
@@ -192,9 +197,9 @@ function patchUser( req, res, next ) {
             UNION\
             SELECT\
             CASE WHEN IFNULL( saCount, 0 ) = 2 AND ' + ( req.body.role === SUPER_ADMIN_ROLE ) + '\
-                 THEN \'no more then 2 superadmin is possible\'\
+                 THEN \'No more then 2 superadmin is possible\'\
                  WHEN IFNULL( saCount, 0 ) = 0 AND ' + ( req.body.role !== SUPER_ADMIN_ROLE ) + '\
-                 THEN \'at least 1 superadmin is required\'  END\
+                 THEN \'At least 1 superadmin is required\'  END\
             FROM users\
             LEFT JOIN\
                 ( SELECT COUNT( id ) AS saCount\
@@ -224,7 +229,7 @@ function patchUser( req, res, next ) {
             sqlQuery += ' WHERE id = ' + userId;                                
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'user id: ' + userId + ' has been patched' } );
+                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been patched' } );
                 })
                 .catch( err => {
                     next( err );
@@ -246,13 +251,13 @@ function deleteUser( req, res, next ) {
     userId = req.params.userId;
 
     sqlQuery = '\
-        SELECT \'user id ' + userId + ' not found\' AS errorMessage\
+        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
         FROM users\
         HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
         \
         UNION\
         \
-        SELECT \'at least 1 superadmin is required\'\
+        SELECT \'At least 1 superadmin is required\'\
         FROM users\
         LEFT JOIN\
             ( SELECT COUNT( id ) AS saCount\
@@ -280,7 +285,7 @@ function deleteUser( req, res, next ) {
             sqlQuery = 'DELETE FROM users WHERE id = ' + userId;
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'user id: ' + userId + ' has been deleted' } );
+                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been deleted' } );
                 })
                 .catch( err => {
                     next( err );
@@ -347,7 +352,7 @@ function addUserGroup( req, res, next ) {
     }
     groupId = req.params.groupId;
 
-    sqlQuery = 'SELECT \'group id ' + groupId + ' already exist\' AS errorMessage\
+    sqlQuery = 'SELECT \'Group id ' + groupId + ' already exist\' AS errorMessage\
                 FROM user_groups\
                 WHERE id = ' + groupId;
 
@@ -357,7 +362,7 @@ function addUserGroup( req, res, next ) {
     }
     sqlQuery += '\
         UNION\
-        SELECT \'please pass an array with existed id\'s\'\
+        SELECT \'Please pass an array with existed ids\'\
         FROM users\
         WHERE ' + condition + '\
         HAVING COUNT(id) <> ' + req.body.userIds.length;
@@ -377,7 +382,73 @@ function addUserGroup( req, res, next ) {
             sqlQuery += 'COMMIT;';
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'group id: ' + groupId + ' has been created' } );
+                    res.status( 201 ).json( { status: '\Group id: ' + groupId + ' has been created' } );
+                })
+                .catch( err => {
+                    next( err );
+                });
+        })
+        .catch( err => {
+            next( err );
+        });       
+}
+//--------------------------------------------------------------------------------
+function patchUserGroup( req, res, next ) {
+    let sqlQuery, groupId, condition;
+    let isVaildId = Joi.validate( req.params, groupIdSchema );    
+    let groupSchema = Joi.object().keys({
+        name: Joi.string().min( MIN_GROUPNAME_LENGTH ).max( MAX_LENGTH ),
+        userIds: Joi.array()
+                    .items( Joi.number().integer().min( 0 ) )
+                    .min( 1 )
+                    .unique( ( a, b ) => a === b )
+    }).min( 1 );
+    let idValidData = Joi.validate( req.body, groupSchema );
+
+    if ( isVaildId.error || idValidData.error  ) {
+        next( isVaildId.error || idValidData.error );
+        return;
+    }
+    groupId = req.params.groupId;
+
+    sqlQuery = '\
+        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
+        FROM user_groups\
+        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0';
+    if ( req.body.hasOwnProperty( 'userIds' ) ) {
+        condition = '';
+        for ( let userId of req.body.userIds ) {
+            condition += ( condition === '' ? ' ' : ' OR ' ) + ' id = ' + userId;
+        }
+        sqlQuery += '\
+            UNION\
+            SELECT \'Please pass an array with existed ids\'\
+            FROM users\
+            WHERE ' + condition + '\
+            HAVING COUNT(id) <> ' + req.body.userIds.length;
+    }
+
+    dbRequest( sqlQuery )
+        .then( data => {
+
+            if(  data.length ) {
+                res.status( 400 ).json( data );
+                return;
+            }
+            sqlQuery = 'START TRANSACTION;';
+            if ( req.body.hasOwnProperty( 'name' ) ) {
+                sqlQuery += 'UPDATE user_groups SET name = \'' + req.body.name + '\' WHERE id = ' + groupId + ';';
+            }    
+            if ( req.body.hasOwnProperty( 'userIds' ) ) {
+                sqlQuery += 'DELETE FROM group_users WHERE groupId = ' + groupId + ';' ;
+                for ( let userId of req.body.userIds ) {
+                    sqlQuery += 'INSERT INTO group_users (groupId,userId) values(' + groupId + ',' + userId + ');';
+                }
+            }    
+            sqlQuery += 'COMMIT;';
+            dbRequest( sqlQuery )
+                .then( data => {
+                    res.status( 201 ).json( { status: '\Group id: ' + groupId + ' has been updated' } );
                 })
                 .catch( err => {
                     next( err );
@@ -386,10 +457,6 @@ function addUserGroup( req, res, next ) {
         .catch( err => {
             next( err );
         });   
-    
-}
-//--------------------------------------------------------------------------------
-function patchUserGroup( req, res, next ) {
     
 }
 //--------------------------------------------------------------------------------
@@ -404,7 +471,7 @@ function deleteUserGroup( req, res, next ) {
     groupId = req.params.groupId;
 
     sqlQuery = '\
-        SELECT \'group id ' + groupId + ' not found\' AS errorMessage\
+        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
         FROM user_groups\
         HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0';
 
@@ -418,7 +485,112 @@ function deleteUserGroup( req, res, next ) {
             sqlQuery = 'DELETE FROM user_groups WHERE id = ' + groupId;
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'group id: ' + groupId + ' has been deleted' } );
+                    res.status( 201 ).json( { status: 'Group id: ' + groupId + ' has been deleted' } );
+                })
+                .catch( err => {
+                    next( err );
+                });
+        })
+        .catch( err => {
+            next( err );
+        });   
+}
+//--------------------------------------------------------------------------------
+function addUserToGroup( req, res, next ) {
+    let isVaildIds = Joi.validate( req.params, bothIdSchema );    
+    let userId, groupId;
+
+    if ( isVaildIds.error ) {
+        next( isVaildIds.error );
+        return;
+    }
+    groupId = req.params.groupId;
+    userId = req.params.userId;
+    sqlQuery = '\
+        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
+        FROM users\
+        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
+        \
+        UNION\
+        \
+        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
+        FROM user_groups\
+        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0\
+        \
+        UNION\
+        \
+        SELECT \'User id ' + userId + ' already added to group id ' + groupId + '\'\
+        FROM group_users\
+        WHERE groupId = ' + groupId + ' AND userId = ' + userId;
+
+    dbRequest( sqlQuery )
+        .then( data => {
+
+            if(  data.length ) {
+                res.status( 400 ).json( data );
+                return;
+            }
+
+            sqlQuery = 'INSERT INTO group_users (groupId,userId) values (' + groupId + ', ' + userId + ')';
+            dbRequest( sqlQuery )
+                .then( data => {
+                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been added to group id ' + groupId } );
+                })
+                .catch( err => {
+                    next( err );
+                });
+        })
+        .catch( err => {
+            next( err );
+        });   
+}    
+//--------------------------------------------------------------------------------
+function deleteUserToGroup( req, res, next ) {
+    let isVaildIds = Joi.validate( req.params, bothIdSchema );    
+    let userId, groupId;
+
+    if ( isVaildIds.error ) {
+        next( isVaildIds.error );
+        return;
+    }
+    groupId = req.params.groupId;
+    userId = req.params.userId;
+    sqlQuery = '\
+        SELECT \'User id ' + userId + ' not found\' AS errorMessage\
+        FROM users\
+        HAVING MAX( CASE WHEN id = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
+        \
+        UNION\
+        \
+        SELECT \'Group id ' + groupId + ' not found\' AS errorMessage\
+        FROM user_groups\
+        HAVING MAX( CASE WHEN id = ' + groupId + ' THEN 1 ELSE 0 END ) = 0\
+        \
+        UNION\
+        \
+        SELECT \'User id ' + userId + ' not found in groupId ' + groupId + '\' AS errorMessage\
+        FROM group_users\
+        HAVING MAX( CASE WHEN groupId = ' + groupId + ' AND userId = ' + userId + ' THEN 1 ELSE 0 END ) = 0\
+        \
+        UNION\
+        \
+        SELECT \'Group id ' + groupId + ' will be empty after deletion userId '+ userId + '\'\
+        FROM group_users\
+        WHERE groupId = ' + groupId + '\
+        HAVING count(userId) = 1';
+
+    dbRequest( sqlQuery )
+        .then( data => {
+
+            if(  data.length ) {
+                res.status( 400 ).json( data );
+                return;
+            }
+
+            sqlQuery = 'DELETE FROM group_users WHERE groupId = ' + groupId + ' AND userId = ' + userId;
+            dbRequest( sqlQuery )
+                .then( data => {
+                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been deleted from group id ' + groupId } );
                 })
                 .catch( err => {
                     next( err );
@@ -502,6 +674,12 @@ baseAllUserSQLQuery = 'SELECT id, name, password, email, role FROM users';
 userIdSchema = Joi.object().keys({
         userId: Joi.number().integer().min( 0 )
 });
+
 groupIdSchema = Joi.object().keys({
         groupId: Joi.number().integer().min( 0 ).max( MAX_GROUP_NUMBER )
+});
+
+bothIdSchema = Joi.object().keys({
+    groupId: Joi.number().integer().min( 0 ).max( MAX_GROUP_NUMBER ),
+    userId: Joi.number().integer().min( 0 )
 });
