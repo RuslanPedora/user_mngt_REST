@@ -27,9 +27,16 @@ let userIdSchema, groupIdSchema, bothIdSchema;
 let baseAllGroupSQLQuery;
 let baseAllUserSQLQuery;
 //--------------------------------------------------------------------------------
-const httpServer = expressApp.listen( PORT, () => {
-    console.log( "Server has started on port: " + PORT );
-});
+try {
+    expressApp.listen( PORT, () => {
+        console.log( "Server has started on port: " + PORT );
+    });
+}
+catch ( err ) {
+    console.log( err.message );
+    console.log( 'Unable to start server on port: ' + PORT );
+    process.exit( 0 )
+}
 
 expressApp.use( bodyParser.json() );
 expressApp.use( ( req, res, next ) => {
