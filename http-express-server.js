@@ -6,6 +6,9 @@ const MIN_GROUPNAME_LENGTH = 4;
 const MAX_LENGTH = 20;
 const VALID_ROLES = [ 'superadmin', 'admin', 'user' ];
 const SUPER_ADMIN_ROLE = 'superadmin';
+const VALID_USER_SORTING = [ 'id', 'name', 'email', 'role' ];
+const VALID_GROUP_SORTING = [ 'id', 'name' ];
+
 const dbConnetionData = {
         host     : 'localhost',
         database : 'user_mngt_db',
@@ -56,11 +59,25 @@ expressApp.route( '/user-groups/:groupId/users/:userId' )
 expressApp.use( onReqError );
 //--------------------------------------------------------------------------------
 function getAllUsers( req, res, next ) {
+    let query = baseAllUserSQLQuery;
+    let userSortingSchema = Joi.object().keys( {
+        sort: Joi.string().valid( ...VALID_USER_SORTING ),
+        desc: Joi.boolean()
+    }).with( 'desc', 'sort' ); 
+    let isValidSorting = Joi.validate( req.query, userSortingSchema );
 
-    dbRequest( baseAllUserSQLQuery )
-        .then( data => {
-            res.status( 200 );
-            res.end( JSON.stringify( data, null, '  ' ) );
+    if ( isValidSorting.error ) {
+        res.status( 400 );
+        next( isValidSorting.error );
+        return;
+    }
+    if ( req.query.sort ) {
+        query += ' ORDER BY ' + req.query.sort + parseDesc( req.query.desc );
+    }
+
+    dbRequest( query )
+        .then( data => {            
+            res.status( 200 ).json( data );
         })
         .catch( err => {
             next( err );
@@ -72,6 +89,7 @@ function getUser( req, res, next ) {
     let isVaildId = Joi.validate( req.params, userIdSchema );
 
     if (  isVaildId.error  ) {
+        res.status( 400 );
         next( isVaildId.error );
         return;
     }
@@ -82,7 +100,7 @@ function getUser( req, res, next ) {
             if(  data.length ) {
                 res.status( 200 ).json( data[ 0 ] );
             } else {
-                res.status( 200 ).json( { status: 'User not found' } );
+                res.status( 206 ).json( { status: 'User not found' } );
             }
         })
         .catch( err => {
@@ -102,6 +120,7 @@ function addUser( req, res, next ) {
     let isVaildUserData = Joi.validate( req.body, userDataSchema );
 
     if ( isVaildId.error || isVaildUserData.error ) {
+        res.status( 400 );
         next( isVaildId.error || isVaildUserData.error );
         return;
     }
@@ -167,6 +186,7 @@ function patchUser( req, res, next ) {
     let isVaildUserData = Joi.validate( req.body, userDataSchema );
 
     if ( isVaildId.error || isVaildUserData.error ) {
+        res.status( 400 );
         next( isVaildId.error || isVaildUserData.error );
         return;
     }
@@ -218,7 +238,7 @@ function patchUser( req, res, next ) {
             sqlQuery += ' WHERE id = ' + userId;                                
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been patched' } );
+                    res.status( 202 ).json( { status: 'User id: ' + userId + ' has been patched' } );
                 })
                 .catch( err => {
                     next( err );
@@ -234,6 +254,7 @@ function deleteUser( req, res, next ) {
     let isVaildId = Joi.validate( req.params, userIdSchema );    
 
     if ( isVaildId.error ) {
+        res.status( 400 );
         next( isVaildId.error );
         return;
     }
@@ -272,7 +293,7 @@ function deleteUser( req, res, next ) {
             sqlQuery = 'DELETE FROM users WHERE id = ' + userId;
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been deleted' } );
+                    res.status( 202 ).json( { status: 'User id: ' + userId + ' has been deleted' } );
                 })
                 .catch( err => {
                     next( err );
@@ -284,12 +305,28 @@ function deleteUser( req, res, next ) {
 }
 //--------------------------------------------------------------------------------
 function getAllUserGroups( req, res, next ) {
-    let sqlQuery = baseAllGroupSQLQuery;
+    let query = baseAllGroupSQLQuery;
+    let userSortingSchema = Joi.object().keys( {
+        sort: Joi.string().valid( ...VALID_GROUP_SORTING ),
+        desc: Joi.boolean()
+    }).with( 'desc', 'sort' ); 
+    let isValidSorting = Joi.validate( req.query, userSortingSchema );
 
-    dbRequest( sqlQuery )
+    if ( isValidSorting.error ) {
+        res.status( 400 );
+        next( isValidSorting.error );
+        return;
+    }
+    if ( req.query.sort ) {
+        query += ' ORDER BY user_groups.' + req.query.sort + 
+                 parseDesc( req.query.desc ) +
+                 ',users.' + req.query.sort +
+                 parseDesc( req.query.desc );
+    }
+
+    dbRequest( query )
         .then( data => {
-            res.status( 200 );
-            res.end( JSON.stringify( structDBListToUserGroup( data ), null, '  ' ) );
+            res.status( 200 ).json( structDBListToUserGroup( data ) );
         })
         .catch( err => {
             next( err );
@@ -301,6 +338,7 @@ function getUserGroup( req, res, next ) {
     let isVaildId = Joi.validate( req.params, groupIdSchema );
 
     if (  isVaildId.error  ) {
+        res.status( 400 );
         next( isVaildId.error );
         return;
     }
@@ -312,7 +350,7 @@ function getUserGroup( req, res, next ) {
             if(  data.length ) {
                 res.status( 200 ).json( data[ 0 ] );
             } else {
-                res.status( 200 ).json( { status: 'Group not found' } );
+                res.status( 206 ).json( { status: 'Group not found' } );
             }            
         })
         .catch( err => {
@@ -334,6 +372,7 @@ function addUserGroup( req, res, next ) {
     let idValidData = Joi.validate( req.body, groupSchema );
 
     if ( isVaildId.error || idValidData.error  ) {
+        res.status( 400 );
         next( isVaildId.error || idValidData.error );
         return;
     }
@@ -384,6 +423,7 @@ function patchUserGroup( req, res, next ) {
     let idValidData = Joi.validate( req.body, groupSchema );
 
     if ( isVaildId.error || idValidData.error  ) {
+        res.status( 400 );
         next( isVaildId.error || idValidData.error );
         return;
     }
@@ -414,7 +454,7 @@ function patchUserGroup( req, res, next ) {
             sqlQuery += 'COMMIT;';
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: '\Group id: ' + groupId + ' has been updated' } );
+                    res.status( 202 ).json( { status: '\Group id: ' + groupId + ' has been updated' } );
                 })
                 .catch( err => {
                     next( err );
@@ -431,6 +471,7 @@ function deleteUserGroup( req, res, next ) {
     let isVaildId = Joi.validate( req.params, groupIdSchema );    
 
     if ( isVaildId.error ) {
+        res.status( 400 );
         next( isVaildId.error );
         return;
     }
@@ -448,7 +489,7 @@ function deleteUserGroup( req, res, next ) {
             sqlQuery = 'DELETE FROM user_groups WHERE id = ' + groupId;
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'Group id: ' + groupId + ' has been deleted' } );
+                    res.status( 202 ).json( { status: 'Group id: ' + groupId + ' has been deleted' } );
                 })
                 .catch( err => {
                     next( err );
@@ -464,6 +505,7 @@ function addUserToGroup( req, res, next ) {
     let userId, groupId;
 
     if ( isVaildIds.error ) {
+        res.status( 400 );
         next( isVaildIds.error );
         return;
     }
@@ -509,6 +551,7 @@ function deleteUserToGroup( req, res, next ) {
     let userId, groupId;
 
     if ( isVaildIds.error ) {
+        res.status( 400 );
         next( isVaildIds.error );
         return;
     }
@@ -545,7 +588,7 @@ function deleteUserToGroup( req, res, next ) {
             sqlQuery = 'DELETE FROM group_users WHERE groupId = ' + groupId + ' AND userId = ' + userId;
             dbRequest( sqlQuery )
                 .then( data => {
-                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been deleted from group id ' + groupId } );
+                    res.status( 202 ).json( { status: 'User id: ' + userId + ' has been deleted from group id ' + groupId } );
                 })
                 .catch( err => {
                     next( err );
@@ -556,8 +599,8 @@ function deleteUserToGroup( req, res, next ) {
         });   
 }
 //--------------------------------------------------------------------------------
-function onReqError( err, req, res, next ) {
-    res.status( 400 ).json( {
+function onReqError( err, req, res, next ) {    
+    res.status( res.statusCode === 200 ? 500 : res.statusCode || 500 ).json( {
         errorMessage: err.message,
         stack: err.stack
     } );
@@ -568,15 +611,13 @@ function dbRequest( querySQL ) {
         connection = mysql.createConnection( dbConnetionData );
         connection.connect();
         connection.query( querySQL, ( error, results, fields ) => {
+
+            connection.destroy();
+
             if ( error ) { 
                 reject( error );
             }
-            resolve( results );
-
-            connection.end( err => {
-                console.log( 'DB connection ended with error: ' + err );
-            });        
-            
+            resolve( results );            
         });
     });
 }
@@ -667,13 +708,18 @@ function getUserListExistQuery( userIds ) {
     return query;
 }
 //--------------------------------------------------------------------------------
+function parseDesc( desc ) {
+
+    return desc && JSON.parse( desc ) ? ' DESC ' : '' ;
+} 
+//--------------------------------------------------------------------------------
 baseAllGroupSQLQuery = '\
     SELECT user_groups.id AS groupId, user_groups.name AS groupName,\
         users.id,  users.name, users.password, users.email, users.role\
     FROM user_groups\
-    LEFT JOIN group_users\
+    JOIN group_users\
     ON user_groups.id = group_users.groupId\
-    LEFT JOIN users\
+    JOIN users\
     ON group_users.userId = users.id';
 
 baseAllUserSQLQuery = 'SELECT id, name, password, email, role FROM users';
