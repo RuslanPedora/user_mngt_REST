@@ -1,3 +1,4 @@
+'use strict'
 const PORT = 8080;
 const MAX_GROUP_NUMBER = 1000;
 const MIN_USERNAME_LENGTH = 4;
@@ -8,18 +9,11 @@ const VALID_ROLES = [ 'superadmin', 'admin', 'user' ];
 const SUPER_ADMIN_ROLE = 'superadmin';
 const VALID_USER_SORTING = [ 'id', 'name', 'email', 'role' ];
 const VALID_GROUP_SORTING = [ 'id', 'name' ];
-
-const dbConnetionData = {
-        host     : 'localhost',
-        database : 'user_mngt_db',
-        user     : 'root',
-        multipleStatements: true
-      };      
 //--------------------------------------------------------------------------------
 const express = require( 'express' );
 const bodyParser = require( 'body-parser' );
 const Joi = require( 'joi' );
-const mysql = require( 'mysql' );
+const dbAgent = require( './db-agent' );
 
 const expressApp = express();
 //--------------------------------------------------------------------------------
@@ -62,7 +56,6 @@ expressApp.route( '/user-groups/:groupId/users/:userId' )
     .post( addUserToGroup )
     .delete( deleteUserToGroup );
 
-
 expressApp.use( onReqError );
 //--------------------------------------------------------------------------------
 function getAllUsers( req, res, next ) {
@@ -82,7 +75,7 @@ function getAllUsers( req, res, next ) {
         query += ' ORDER BY ' + req.query.sort + parseDesc( req.query.desc );
     }
 
-    dbRequest( query )
+    dbAgent.dbRequest( query )
         .then( data => {            
             res.status( 200 ).json( data );
         })
@@ -102,7 +95,7 @@ function getUser( req, res, next ) {
     }
 
     sqlQuery += ' WHERE id = ' + req.params.userId;
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
             if(  data.length ) {
                 res.status( 200 ).json( data[ 0 ] );
@@ -155,12 +148,12 @@ function addUser( req, res, next ) {
             HAVING COUNT( id ) = 2';
     }
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
             sqlQuery = 'INSERT INTO USERS (id,name,password,email,role)\
                                     VALUES( ' + userId + ',\
@@ -168,15 +161,16 @@ function addUser( req, res, next ) {
                                             \'' + req.body.password + '\',\
                                             \'' + req.body.email + '\',\
                                             \'' + req.body.role + '\' )';
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been created' } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
         })
-        .catch( err => {
+        .then( data => {
+            if ( res.statusCode === 400 ) {
+                res.json( data )
+            } else {
+                res.status( 201 ).json( { status: 'User id: ' + userId + ' has been created' } );
+            }    
+        })
+        .catch( err => {            
             next( err );
         });
 }
@@ -229,13 +223,13 @@ function patchUser( req, res, next ) {
             )';
     }
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
             let setStr = '';
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
             sqlQuery = 'UPDATE users SET ';
             for ( let prop in req.body ) {
@@ -243,13 +237,14 @@ function patchUser( req, res, next ) {
             }
             sqlQuery += setStr;
             sqlQuery += ' WHERE id = ' + userId;                                
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 202 ).json( { status: 'User id: ' + userId + ' has been patched' } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if( res.statusCode === 400 ) {
+                res.json( data );
+            } else {
+                res.status( 202 ).json( { status: 'User id: ' + userId + ' has been patched' } );
+            }            
         })
         .catch( err => {
             next( err );
@@ -290,21 +285,22 @@ function deleteUser( req, res, next ) {
         WHERE id IN ( SELECT groupId FROM group_users WHERE userId = ' + userId + ' )\
         AND group_users.userId IS NULL';
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
             sqlQuery = 'DELETE FROM users WHERE id = ' + userId;
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 202 ).json( { status: 'User id: ' + userId + ' has been deleted' } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if ( res.statusCode === 400 ) {
+                res.json( data );
+            } else {
+                res.status( 202 ).json( { status: 'User id: ' + userId + ' has been deleted' } );
+            }            
         })
         .catch( err => {
             next( err );
@@ -331,9 +327,9 @@ function getAllUserGroups( req, res, next ) {
                  parseDesc( req.query.desc );
     }
 
-    dbRequest( query )
+    dbAgent.dbRequest( query )
         .then( data => {
-            res.status( 200 ).json( structDBListToUserGroup( data ) );
+            res.status( 200 ).json( dbAgent.structDBListToUserGroup( data ) );
         })
         .catch( err => {
             next( err );
@@ -351,9 +347,9 @@ function getUserGroup( req, res, next ) {
     }
 
     sqlQuery += ' WHERE user_groups.id = ' + req.params.groupId;
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {            
-            data = structDBListToUserGroup( data );
+            data = dbAgent.structDBListToUserGroup( data );
             if(  data.length ) {
                 res.status( 200 ).json( data[ 0 ] );
             } else {
@@ -391,12 +387,12 @@ function addUserGroup( req, res, next ) {
 
     sqlQuery += ' UNION ' + getUserListExistQuery( req.body.userIds );
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
             sqlQuery = 'START TRANSACTION;';
             sqlQuery += 'INSERT INTO user_groups (id,name) values(' + groupId + ',\'' + req.body.name + '\');';
@@ -404,13 +400,14 @@ function addUserGroup( req, res, next ) {
                 sqlQuery += 'INSERT INTO group_users (groupId,userId) values(' + groupId + ',' + userId + ');';
             }
             sqlQuery += 'COMMIT;';
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 201 ).json( { status: '\Group id: ' + groupId + ' has been created' } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if( res.statusCode === 400 ) {
+                res.json( data );
+            } else {
+                res.status( 201 ).json( { status: '\Group id: ' + groupId + ' has been created' } );
+            }            
         })
         .catch( err => {
             next( err );
@@ -441,12 +438,12 @@ function patchUserGroup( req, res, next ) {
         sqlQuery += ' UNION ' + getUserListExistQuery( req.body.userIds );
     }
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
             sqlQuery = 'START TRANSACTION;';
             if ( req.body.hasOwnProperty( 'name' ) ) {
@@ -459,13 +456,15 @@ function patchUserGroup( req, res, next ) {
                 }
             }    
             sqlQuery += 'COMMIT;';
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 202 ).json( { status: '\Group id: ' + groupId + ' has been updated' } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if ( res.statusCode === 400 ) {
+                res.json( data );
+            } else {
+                res.status( 202 ).json( { status: '\Group id: ' + groupId + ' has been updated' } );                
+            }
         })
         .catch( err => {
             next( err );
@@ -486,21 +485,22 @@ function deleteUserGroup( req, res, next ) {
 
     sqlQuery = getGroupExistQuery( groupId );
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
             sqlQuery = 'DELETE FROM user_groups WHERE id = ' + groupId;
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 202 ).json( { status: 'Group id: ' + groupId + ' has been deleted' } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if ( res.statusCode === 400 ) {
+                res.json( data );
+            } else {
+                res.status( 202 ).json( { status: 'Group id: ' + groupId + ' has been deleted' } );
+            }            
         })
         .catch( err => {
             next( err );
@@ -509,7 +509,7 @@ function deleteUserGroup( req, res, next ) {
 //--------------------------------------------------------------------------------
 function addUserToGroup( req, res, next ) {
     let isVaildIds = Joi.validate( req.params, bothIdSchema );    
-    let userId, groupId;
+    let userId, groupId, sqlQuery;
 
     if ( isVaildIds.error ) {
         res.status( 400 );
@@ -527,26 +527,26 @@ function addUserToGroup( req, res, next ) {
         \
         UNION\
         \
-        SELECT \'User id ' + userId + ' already added to group id ' + groupId + '\'\
+        SELECT \'User id ' + userId + ' already is in group id ' + groupId + '\'\
         FROM group_users\
         WHERE groupId = ' + groupId + ' AND userId = ' + userId;
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
-
             sqlQuery = 'INSERT INTO group_users (groupId,userId) values (' + groupId + ', ' + userId + ')';
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 201 ).json( { status: 'User id: ' + userId + ' has been added to group id ' + groupId } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if ( res.statusCode === 400 ) {
+                res.json( data );
+            } else {
+                res.status( 201 ).json( { status: 'User id: ' + userId + ' has been added to group id ' + groupId } );
+            }            
         })
         .catch( err => {
             next( err );
@@ -555,7 +555,7 @@ function addUserToGroup( req, res, next ) {
 //--------------------------------------------------------------------------------
 function deleteUserToGroup( req, res, next ) {
     let isVaildIds = Joi.validate( req.params, bothIdSchema );    
-    let userId, groupId;
+    let userId, groupId, sqlQuery;
 
     if ( isVaildIds.error ) {
         res.status( 400 );
@@ -584,22 +584,22 @@ function deleteUserToGroup( req, res, next ) {
         WHERE groupId = ' + groupId + '\
         HAVING count(userId) = 1';
 
-    dbRequest( sqlQuery )
+    dbAgent.dbRequest( sqlQuery )
         .then( data => {
 
             if(  data.length ) {
-                res.status( 400 ).json( data );
-                return;
+                res.status( 400 );
+                return Promise.resolve( data );
             }
-
             sqlQuery = 'DELETE FROM group_users WHERE groupId = ' + groupId + ' AND userId = ' + userId;
-            dbRequest( sqlQuery )
-                .then( data => {
-                    res.status( 202 ).json( { status: 'User id: ' + userId + ' has been deleted from group id ' + groupId } );
-                })
-                .catch( err => {
-                    next( err );
-                });
+            return dbAgent.dbRequest( sqlQuery );
+        })
+        .then( data => {
+            if ( res.statusCode === 400 ) { 
+                res.json( data );
+            } else { 
+                res.status( 202 ).json( { status: 'User id: ' + userId + ' has been deleted from group id ' + groupId } );
+            }            
         })
         .catch( err => {
             next( err );
@@ -611,56 +611,6 @@ function onReqError( err, req, res, next ) {
         errorMessage: err.message,
         stack: err.stack
     } );
-}
-//--------------------------------------------------------------------------------
-function dbRequest( querySQL ) {
-    return new Promise( ( resolve, reject ) => {
-        connection = mysql.createConnection( dbConnetionData );
-        connection.connect();
-        connection.query( querySQL, ( error, results, fields ) => {
-
-            connection.destroy();
-
-            if ( error ) { 
-                reject( error );
-            }
-            resolve( results );            
-        });
-    });
-}
-//--------------------------------------------------------------------------------
-function structDBListToUserGroup( array ) {
-    let res = [];
-    let newUser;
-
-    array.forEach( ( elem, index, arr ) => {
-        if ( index === 0 || arr[ index ].groupId !== arr[ index - 1 ].groupId ) {
-            res.push( {
-                groupId: elem.groupId,
-                groupName: elem.groupName,
-                users: arr.filter( elem => elem.groupId === arr[ index ].groupId )
-                          .map( elem =>  { 
-                              newUser = new User();
-                              Object.assign( newUser, elem );
-                              delete newUser.groupId;
-                              delete newUser.groupName;
-                              return newUser;
-                          } )
-            });
-        }
-    });
-
-    return res;    
-}
-//--------------------------------------------------------------------------------
-class User {
-    constructor( id = 0, name = '', password = '', email = '', role = '' ) {
-        this.id = id;
-        this.name = name;
-        this.password = password;
-        this.email = email;
-        this.role = role;
-    }
 }
 //--------------------------------------------------------------------------------
 function getUserExistQuery( userId ) {
