@@ -12,6 +12,9 @@
     "body-parser": "^1.17.2",
     "express": "^4.15.3",
     "joi": "^10.6.0",
-    "mysql": "^2.13.0"
+    "mysql": "^2.13.0",
+    "passport": "^0.3.2",
+    "passport-http": "^0.3.0",
+    "password-hash": "^1.2.2"
   }
 }
